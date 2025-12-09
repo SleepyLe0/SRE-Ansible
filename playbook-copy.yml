@@ -23,17 +23,17 @@
        node: int531-09
        state: stopped
        force: true
-     when: vm_info.vmid is defined and vm_info.status ==  'running'
+     when: vm_info.vm is defined and vm_info.vm.status ==  'running'
 
    - name: Remove VM
      community.proxmox.proxmox_kvm:
        api_user: root@pam
-       api_password: int53109
-       api_host: 10.13.104.219
-       name: espresso-instance
-       node: int531-09
+       api_password: secret
+       api_host: helldorado
+       name: spynal
+       node: sabrewulf
        state: absent
-     when: vm_info.vmid is defined
+     when: vm_info.vm is defined
 
    - name: Print message
      ansible.builtin.debug:
@@ -50,16 +50,6 @@
        storage: local-lvm
        format: qcow2
        timeout: 100
-     register: new_vm
-
-   - name: Start VM
-     community.proxmox.proxmox_kvm:
-       api_user: root@pam
-       api_password: int53109
-       api_host: 10.13.104.219
-       vmid: "{{ new_vm.vmid }}"
-       node: int531-09
-       state: started
 
    - debug:
        var: vm_info
