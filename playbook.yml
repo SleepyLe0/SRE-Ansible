@@ -1,5 +1,5 @@
 - name: My first play
-  hosts: web
+  hosts: localhost
   tasks:
    - name: Ping my hosts
      ansible.builtin.ping:
@@ -7,3 +7,16 @@
    - name: Print message
      ansible.builtin.debug:
        msg: Hello world
+
+   - name: Create VM
+     community.proxmox.proxmox_kvm: 
+       api_user: root@pam
+       api_password: int53109
+       api_host: 10.13.104.219
+       clone: SRE-09-3
+       name: espresso-instance
+       node: int531-09
+       storage: local-lvm
+       format: qcow2
+       timeout: 100
+       vmid: 172
