@@ -1,9 +1,9 @@
 - name: My first play
   hosts: localhost
   vars:
-    vm_name: espresso-instance
+    vm_name: espresso-instance2
     vm_hostname: espresso-instance
-    vm_template: SRE-09-3-Template-V2
+    vm_template: SRE-09-3-Template-V3
     proxmox_node: int531-09
     proxmox_api_host: 10.13.104.219
     proxmox_api_user: root@pam
