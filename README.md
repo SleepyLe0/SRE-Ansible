@@ -8,6 +8,7 @@ Be sure to check
 [ ] playbook.yml
 [ ] playbook-vm-config.yml
 [ ] inventory.ini
+[ ] ssh private key in the folder
 
 remove all # comment and replace the placeholder value preceeding them with your own value
 
@@ -24,3 +25,5 @@ remove all # comment and replace the placeholder value preceeding them with your
 9. ssh to the new VM and check if hostname is changed
 
 feel free to reach out to Electric Nutbuster on discord for issue
+
+rule is not used right now. because we don't need to reuse docker install rule.
