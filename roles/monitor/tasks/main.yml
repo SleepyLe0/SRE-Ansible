@@ -1,6 +1,6 @@
 ---
 # roles/monitor/tasks/main.yml
-# Deploys Node Exporter and Prometheus
+# Deploys Prometheus, Grafana, Alertmanager, and Node Exporter
 
 - name: Create prometheus user
   ansible.builtin.user:
@@ -13,13 +13,24 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    owner: 65534
-    group: 65534
+    owner: '65534'
+    group: '65534'
     mode: '0755'
   loop:
     - /opt/monitoring
     - /opt/monitoring/prometheus
     - /opt/monitoring/prometheus/data
+    - /opt/monitoring/grafana
+    - /opt/monitoring/grafana/data
+    - /opt/monitoring/grafana/provisioning
+    - /opt/monitoring/grafana/provisioning/datasources
+    - /opt/monitoring/grafana/provisioning/dashboards
+    - /opt/monitoring/alertmanager
+    - /opt/monitoring/alertmanager/data
+
+# ============================================
+# NODE EXPORTER INSTALLATION
+# ============================================
 
 - name: Download Node Exporter
   ansible.builtin.get_url:
@@ -71,24 +82,24 @@
     state: started
     enabled: yes
 
-- name: Create Prometheus config
-  ansible.builtin.copy:
+# ============================================
+# PROMETHEUS CONFIGURATION
+# ============================================
+
+- name: Create Prometheus config from template
+  ansible.builtin.template:
+    src: prometheus.yml.j2
     dest: /opt/monitoring/prometheus/prometheus.yml
-    content: |
-      global:
-        scrape_interval: 15s
-        evaluation_interval: 15s
+    owner: '65534'
+    group: '65534'
+    mode: '0644'
 
-      scrape_configs:
-        - job_name: 'prometheus'
-          static_configs:
-            - targets: ['{{ ansible_default_ipv4.address }}:9090']
-
-        - job_name: 'node_exporter'
-          static_configs:
-            - targets: ['{{ ansible_default_ipv4.address }}:9100']
-    owner: prometheus
-    group: prometheus
+- name: Create Prometheus alert rules from template
+  ansible.builtin.template:
+    src: alert.rules.yml.j2
+    dest: /opt/monitoring/prometheus/alert.rules.yml
+    owner: '65534'
+    group: '65534'
     mode: '0644'
 
 - name: Deploy Prometheus with Docker
@@ -99,7 +110,146 @@
       --restart unless-stopped \
       --network host \
       -v /opt/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro \
+      -v /opt/monitoring/prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro \
       -v /opt/monitoring/prometheus/data:/prometheus \
-      prom/prometheus:latest
+      -u 65534:65534 \
+      prom/prometheus:latest \
+      --config.file=/etc/prometheus/prometheus.yml \
+      --storage.tsdb.path=/prometheus \
+      --web.console.libraries=/usr/share/prometheus/console_libraries \
+      --web.console.templates=/usr/share/prometheus/consoles \
+      --web.enable-lifecycle
   become: yes
-  ignore_errors: yes
+  changed_when: true
+
+# ============================================
+# ALERTMANAGER CONFIGURATION
+# ============================================
+
+- name: Create Alertmanager config from template
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /opt/monitoring/alertmanager/alertmanager.yml
+    owner: '65534'
+    group: '65534'
+    mode: '0644'
+
+- name: Deploy Alertmanager with Docker
+  ansible.builtin.shell: |
+    docker rm -f alertmanager 2>/dev/null || true
+    docker run -d \
+      --name alertmanager \
+      --restart unless-stopped \
+      --network host \
+      -v /opt/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro \
+      -v /opt/monitoring/alertmanager/data:/alertmanager \
+      -u 65534:65534 \
+      prom/alertmanager:latest \
+      --config.file=/etc/alertmanager/alertmanager.yml \
+      --storage.path=/alertmanager
+  become: yes
+  changed_when: true
+
+# ============================================
+# GRAFANA CONFIGURATION
+# ============================================
+
+- name: Create Grafana datasource configuration
+  ansible.builtin.copy:
+    dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://{{ ansible_default_ipv4.address }}:9090
+          isDefault: true
+          editable: false
+    owner: '472'
+    group: '472'
+    mode: '0644'
+
+- name: Create Grafana dashboard provisioning configuration
+  ansible.builtin.copy:
+    dest: /opt/monitoring/grafana/provisioning/dashboards/dashboard.yml
+    content: |
+      apiVersion: 1
+      providers:
+        - name: 'Default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+    owner: '472'
+    group: '472'
+    mode: '0644'
+
+- name: Copy Grafana dashboard JSON
+  ansible.builtin.copy:
+    src: grafana-dashboard.json
+    dest: /opt/monitoring/grafana/data/grafana-dashboard.json
+    owner: '472'
+    group: '472'
+    mode: '0644'
+
+- name: Deploy Grafana with Docker
+  ansible.builtin.shell: |
+    docker rm -f grafana 2>/dev/null || true
+    docker run -d \
+      --name grafana \
+      --restart unless-stopped \
+      --network host \
+      -e GF_SECURITY_ADMIN_PASSWORD=admin \
+      -e GF_USERS_ALLOW_SIGN_UP=false \
+      -e GF_SERVER_HTTP_PORT=3001 \
+      -v /opt/monitoring/grafana/data:/var/lib/grafana \
+      -v /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning \
+      -u 472:472 \
+      grafana/grafana:latest
+  become: yes
+  changed_when: true
+
+# ============================================
+# VERIFY SERVICES
+# ============================================
+
+- name: Wait for Prometheus to be ready
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 9090
+    delay: 5
+    timeout: 60
+
+- name: Wait for Alertmanager to be ready
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 9093
+    delay: 5
+    timeout: 60
+
+- name: Wait for Grafana to be ready
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 3001
+    delay: 5
+    timeout: 60
+
+- name: Wait for Node Exporter to be ready
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 9100
+    delay: 5
+    timeout: 60
+
+- name: Display monitoring URLs
+  ansible.builtin.debug:
+    msg:
+      - "Prometheus: http://{{ ansible_default_ipv4.address }}:9090"
+      - "Alertmanager: http://{{ ansible_default_ipv4.address }}:9093"
+      - "Grafana: http://{{ ansible_default_ipv4.address }}:3001 (admin/admin)"
+      - "Node Exporter: http://{{ ansible_default_ipv4.address }}:9100/metrics"

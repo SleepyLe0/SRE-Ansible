@@ -1,0 +1,147 @@
+groups:
+  - name: sre_alerts
+    interval: 30s
+    rules:
+      # High Error Rate Alert (>1%)
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(http_requests_total{status=~"5.."}[5m]) /
+            rate(http_requests_total[5m])
+          ) * 100 > 1
+        for: 2m
+        labels:
+          severity: critical
+          category: error_budget
+        annotations:
+          summary: "High error rate detected on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%)\nService: {{ $labels.service }}\nInstance: {{ $labels.instance }}"
+
+      # High Latency Alert (p95 > 1s)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "High latency detected on {{ $labels.instance }}"
+          description: "95th percentile latency is {{ $value }}s (threshold: 1s)\nService: {{ $labels.service }}"
+
+      # High CPU Usage (>85%)
+      - alert: HighCPUUsage
+        expr: |
+          100 - (
+            avg by(instance) (
+              rate(node_cpu_seconds_total{mode="idle"}[5m])
+            ) * 100
+          ) > 85
+        for: 10m
+        labels:
+          severity: warning
+          category: resource
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanize }}% (threshold: 85%)\nInstance: {{ $labels.instance }}"
+
+      # High Memory Usage (>85%)
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            1 - (
+              node_memory_AvailableBytes /
+              node_memory_TotalBytes
+            )
+          ) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          category: resource
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanize }}% (threshold: 85%)\nAvailable: {{ query \"node_memory_AvailableBytes / 1024 / 1024 / 1024\" | first | value | humanize }}GB"
+
+      # Service Down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.instance }} has been down for more than 1 minute\nJob: {{ $labels.job }}\nService: {{ $labels.service }}"
+
+      # Database Connection Issues
+      - alert: DatabaseConnectionHigh
+        expr: |
+          mysql_global_status_threads_connected > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "High database connections on {{ $labels.instance }}"
+          description: "Current connections: {{ $value }} (threshold: 100)"
+
+      # Disk Space Low (<10%)
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} /
+            node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}
+          ) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space is {{ $value | humanize }}% available (threshold: 10%)\nMountpoint: {{ $labels.mountpoint }}"
+
+      # Container Restart Loop
+      - alert: ContainerRestartLoop
+        expr: |
+          rate(docker_container_restart_count[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          category: container
+        annotations:
+          summary: "Container {{ $labels.name }} is in restart loop"
+          description: "Container has restarted {{ $value }} times in the last 15 minutes"
+
+      # HTTP 4xx Rate High (>5%)
+      - alert: HighClientErrorRate
+        expr: |
+          (
+            rate(http_requests_total{status=~"4.."}[5m]) /
+            rate(http_requests_total[5m])
+          ) * 100 > 5
+        for: 10m
+        labels:
+          severity: info
+          category: client_errors
+        annotations:
+          summary: "High client error rate on {{ $labels.instance }}"
+          description: "4xx error rate is {{ $value | humanizePercentage }}\nThis may indicate client-side issues or API misuse"
+
+      # SLO Burn Rate (for 99.9% availability)
+      - alert: SLOBurnRateHigh
+        expr: |
+          (
+            1 - (
+              sum(rate(http_requests_total{status!~"5.."}[1h])) /
+              sum(rate(http_requests_total[1h]))
+            )
+          ) > 0.0014  # More than 14x the error budget burn (0.1% * 14)
+        for: 5m
+        labels:
+          severity: critical
+          category: slo
+        annotations:
+          summary: "SLO error budget burning too fast"
+          description: "Current error rate: {{ $value | humanizePercentage }}\nAt this rate, monthly error budget will be exhausted quickly!"

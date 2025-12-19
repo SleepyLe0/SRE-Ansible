@@ -1,0 +1,210 @@
+{
+  "dashboard": {
+    "title": "INT531 SRE - Four Golden Signals",
+    "tags": ["sre", "golden-signals", "int531"],
+    "timezone": "Asia/Bangkok",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Latency - 95th Percentile Response Time",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 latency - {{service}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50 latency - {{service}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 0.5, "color": "yellow"},
+                {"value": 1, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Traffic - Requests per Second",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total[1m])) by (service)",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Errors - HTTP 5xx Error Rate %",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "(rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m])) * 100",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 0.5, "color": "yellow"},
+                {"value": 1, "color": "red"}
+              ]
+            },
+            "decimals": 2
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Saturation - CPU Usage %",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "CPU",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 70, "color": "yellow"},
+                {"value": 85, "color": "red"}
+              ]
+            },
+            "max": 100,
+            "min": 0
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Saturation - Memory Usage %",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8},
+        "targets": [
+          {
+            "expr": "(1 - (node_memory_AvailableBytes / node_memory_TotalBytes)) * 100",
+            "legendFormat": "Memory",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 70, "color": "yellow"},
+                {"value": 85, "color": "red"}
+              ]
+            },
+            "max": 100,
+            "min": 0
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Service Availability - Uptime",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 24, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "up",
+            "legendFormat": "{{job}} - {{instance}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "1", "text": "UP", "color": "green"},
+              {"type": "value", "value": "0", "text": "DOWN", "color": "red"}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Active Alerts",
+        "type": "alertlist",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "options": {
+          "showOptions": "current",
+          "sortOrder": 3
+        }
+      },
+      {
+        "id": 8,
+        "title": "SLO - Availability % (99.9% target)",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{status!~\"5..\"}[1h])) / sum(rate(http_requests_total[1h]))) * 100",
+            "legendFormat": "Availability",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 99, "color": "yellow"},
+                {"value": 99.9, "color": "green"}
+              ]
+            },
+            "decimals": 3
+          }
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

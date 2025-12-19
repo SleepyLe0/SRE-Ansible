@@ -1,0 +1,56 @@
+global:
+  resolve_timeout: 5m
+
+# Templates for notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'discord-notifications'
+
+  routes:
+    # Critical alerts go immediately
+    - match:
+        severity: critical
+      receiver: 'discord-notifications'
+      group_wait: 0s
+      repeat_interval: 4h
+
+    # Warning alerts can wait a bit
+    - match:
+        severity: warning
+      receiver: 'discord-notifications'
+      group_wait: 30s
+      repeat_interval: 8h
+
+# Receivers configuration
+receivers:
+  # Discord webhook receiver
+  - name: 'discord-notifications'
+    webhook_configs:
+      - url: '{{ discord_webhook_url | default("http://localhost:5001/webhook") }}'
+        send_resolved: true
+
+# Inhibition rules - prevent alert spam
+inhibit_rules:
+  # If service is down, don't alert on high error rate
+  - source_match:
+      severity: 'critical'
+      alertname: 'ServiceDown'
+    target_match:
+      severity: 'critical'
+      alertname: 'HighErrorRate'
+    equal: ['instance']
+
+  # If high CPU, don't alert on high latency
+  - source_match:
+      severity: 'warning'
+      alertname: 'HighCPUUsage'
+    target_match:
+      alertname: 'HighLatency'
+    equal: ['instance']
