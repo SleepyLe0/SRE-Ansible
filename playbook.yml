@@ -11,22 +11,19 @@
     vm_target_ip: 10.13.104.221
     ssh_key_path: "{{ playbook_dir }}/privatekey"
   tasks:
-    - name: Remove existing SSH key pair
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ ssh_key_path }}"
-        - "{{ ssh_key_path }}.pub"
+    - name: Check if SSH key pair exists
+      ansible.builtin.stat:
+        path: "{{ ssh_key_path }}"
+      register: ssh_key_stat
 
-    - name: Generate SSH key pair
+    - name: Generate SSH key pair if not exists
       community.crypto.openssh_keypair:
         path: "{{ ssh_key_path }}"
         type: ed25519
         comment: "sysadmin@{{ vm_target_ip }}"
         mode: '0600'
-        force: true
       register: ssh_keypair
+      when: not ssh_key_stat.stat.exists
 
     - name: Read public key
       ansible.builtin.slurp:
@@ -108,14 +105,23 @@
         node: "{{ proxmox_node }}"
         state: started
 
-    - name: Wait 5 minutes for VM to finish first-boot tasks
-      ansible.builtin.pause:
-        minutes: 5
-
     - name: Wait for VM to be reachable via SSH
-      ansible.builtin.wait_for_connection:
-        delay: 10
-        timeout: 300
+      ansible.builtin.wait_for:
+        host: "{{ vm_target_ip }}"
+        port: 22
+        delay: 15
+        timeout: 450
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      delegate_to: "{{ vm_target_ip }}"
+      vars:
+        ansible_user: root
+        ansible_ssh_private_key_file: "{{ ssh_key_path }}"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+      changed_when: false
+      register: cloud_init_result
+      failed_when: cloud_init_result.rc not in [0, 2]
 
 - name: Configure the new VM hostname
   hosts: 10.13.104.221
