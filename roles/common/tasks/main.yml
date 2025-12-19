@@ -2,6 +2,12 @@
 # roles/common/tasks/main.yml
 # Sets up users, SSH keys, NTP
 
+- name: Wait for cloud-init to finish
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  register: cloud_init_result
+  failed_when: cloud_init_result.rc not in [0, 2]
+
 - name: Update apt cache
   apt:
     update_cache: yes

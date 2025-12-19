@@ -17,6 +17,9 @@
     name: docker.io
     state: present
 
+- name: Reset SSH connection after Docker install
+  ansible.builtin.meta: reset_connection
+
 - name: Install Docker Compose v2
   apt:
     name: docker-compose-v2
@@ -49,4 +52,10 @@
     owner: sysadmin
     group: sysadmin
     mode: '0644'
+  ignore_errors: yes
+
+- name: Start application with Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: /opt/app
   ignore_errors: yes

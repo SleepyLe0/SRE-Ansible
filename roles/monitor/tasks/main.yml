@@ -13,8 +13,8 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    owner: prometheus
-    group: prometheus
+    owner: 65534
+    group: 65534
     mode: '0755'
   loop:
     - /opt/monitoring
