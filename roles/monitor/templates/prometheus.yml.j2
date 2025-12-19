@@ -34,7 +34,7 @@ scrape_configs:
 
   # Backend Application
   - job_name: 'backend'
-    metrics_path: '/metrics'
+    metrics_path: '/api/metrics'
     static_configs:
       - targets: ['{{ ansible_default_ipv4.address }}:3001']
         labels:

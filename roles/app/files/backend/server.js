@@ -13,25 +13,67 @@ app.use(express.json());
 // Prometheus Metrics Setup
 const register = new promClient.Registry();
 
-// Default metrics (CPU, memory, etc.)
+// Default metrics (CPU, memory, Node.js internals, GC, event loop)
 promClient.collectDefaultMetrics({ register });
 
-// Custom metrics
-const httpRequestDuration = new promClient.Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'route', 'status_code'],
-  buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10]
-});
-
+// Custom metrics matching your existing schema
 const httpRequestsTotal = new promClient.Counter({
   name: 'http_requests_total',
-  help: 'Total number of HTTP requests',
+  help: 'Total HTTP requests',
   labelNames: ['method', 'route', 'status']
 });
 
-register.registerMetric(httpRequestDuration);
+const httpRequestDuration = new promClient.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request duration in seconds',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+});
+
+const httpRequestsErrorsTotal = new promClient.Counter({
+  name: 'http_requests_errors_total',
+  help: 'Total failed HTTP requests',
+  labelNames: ['method', 'route', 'status']
+});
+
+const activeRequests = new promClient.Gauge({
+  name: 'active_requests',
+  help: 'Number of active requests'
+});
+
+const dbQueriesTotal = new promClient.Counter({
+  name: 'db_queries_total',
+  help: 'Total database queries',
+  labelNames: ['operation', 'table']
+});
+
+const dbQueryDuration = new promClient.Histogram({
+  name: 'db_query_duration_seconds',
+  help: 'Database query duration in seconds',
+  labelNames: ['operation', 'table'],
+  buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+});
+
+const dbQueryErrorsTotal = new promClient.Counter({
+  name: 'db_query_errors_total',
+  help: 'Total failed database queries',
+  labelNames: ['operation', 'table']
+});
+
+const dbActiveConnections = new promClient.Gauge({
+  name: 'db_active_connections',
+  help: 'Number of active database connections'
+});
+
+// Register all metrics
 register.registerMetric(httpRequestsTotal);
+register.registerMetric(httpRequestDuration);
+register.registerMetric(httpRequestsErrorsTotal);
+register.registerMetric(activeRequests);
+register.registerMetric(dbQueriesTotal);
+register.registerMetric(dbQueryDuration);
+register.registerMetric(dbQueryErrorsTotal);
+register.registerMetric(dbActiveConnections);
 
 // Database connection pool
 let pool;
@@ -72,9 +114,30 @@ async function initDatabase() {
   }
 }
 
+// Helper function to execute DB queries with metrics
+async function executeQuery(sql, params, operation, table) {
+  const startTime = Date.now();
+  try {
+    const [result] = await pool.query(sql, params);
+    const duration = (Date.now() - startTime) / 1000;
+
+    // Record metrics
+    dbQueriesTotal.labels(operation, table).inc();
+    dbQueryDuration.labels(operation, table).observe(duration);
+
+    return result;
+  } catch (error) {
+    const duration = (Date.now() - startTime) / 1000;
+    dbQueryDuration.labels(operation, table).observe(duration);
+    dbQueryErrorsTotal.labels(operation, table).inc();
+    throw error;
+  }
+}
+
 // Middleware to track request metrics
 app.use((req, res, next) => {
   const start = Date.now();
+  activeRequests.inc();
 
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
@@ -85,19 +148,48 @@ app.use((req, res, next) => {
       .observe(duration);
 
     httpRequestsTotal
-      .labels(req.method, route, res.statusCode < 400 ? '2xx-3xx' : '5xx')
+      .labels(req.method, route, res.statusCode.toString())
       .inc();
+
+    // Track errors separately
+    if (res.statusCode >= 500) {
+      httpRequestsErrorsTotal
+        .labels(req.method, route, res.statusCode.toString())
+        .inc();
+    }
+
+    activeRequests.dec();
   });
 
   next();
 });
+
+// Update active connections gauge periodically
+setInterval(async () => {
+  if (pool) {
+    try {
+      const [rows] = await pool.query('SHOW STATUS LIKE "Threads_connected"');
+      if (rows.length > 0) {
+        dbActiveConnections.set(parseInt(rows[0].Value) || 0);
+      }
+    } catch (error) {
+      // Silently fail
+    }
+  }
+}, 5000);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Metrics endpoint for Prometheus
+// Metrics endpoint for Prometheus (matching your /api/metrics path)
+app.get('/api/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
+
+// Also support /metrics for compatibility
 app.get('/metrics', async (req, res) => {
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
@@ -108,7 +200,12 @@ app.get('/metrics', async (req, res) => {
 // Get all students
 app.get('/api/students', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM students ORDER BY created_at DESC');
+    const rows = await executeQuery(
+      'SELECT * FROM students ORDER BY created_at DESC',
+      [],
+      'select',
+      'students'
+    );
     res.json({ success: true, data: rows });
   } catch (error) {
     console.error('Error fetching students:', error);
@@ -119,7 +216,12 @@ app.get('/api/students', async (req, res) => {
 // Get student by ID
 app.get('/api/students/:id', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM students WHERE id = ?', [req.params.id]);
+    const rows = await executeQuery(
+      'SELECT * FROM students WHERE id = ?',
+      [req.params.id],
+      'select',
+      'students'
+    );
 
     if (rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Student not found' });
@@ -141,9 +243,11 @@ app.post('/api/students', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Name and email are required' });
     }
 
-    const [result] = await pool.query(
+    const result = await executeQuery(
       'INSERT INTO students (name, email, major) VALUES (?, ?, ?)',
-      [name, email, major]
+      [name, email, major],
+      'insert',
+      'students'
     );
 
     res.status(201).json({
@@ -165,9 +269,11 @@ app.put('/api/students/:id', async (req, res) => {
     const { name, email, major } = req.body;
     const { id } = req.params;
 
-    const [result] = await pool.query(
+    const result = await executeQuery(
       'UPDATE students SET name = ?, email = ?, major = ? WHERE id = ?',
-      [name, email, major, id]
+      [name, email, major, id],
+      'update',
+      'students'
     );
 
     if (result.affectedRows === 0) {
@@ -184,7 +290,12 @@ app.put('/api/students/:id', async (req, res) => {
 // Delete student
 app.delete('/api/students/:id', async (req, res) => {
   try {
-    const [result] = await pool.query('DELETE FROM students WHERE id = ?', [req.params.id]);
+    const result = await executeQuery(
+      'DELETE FROM students WHERE id = ?',
+      [req.params.id],
+      'delete',
+      'students'
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, error: 'Student not found' });
@@ -197,9 +308,13 @@ app.delete('/api/students/:id', async (req, res) => {
   }
 });
 
-// Simulate error endpoint (for testing error rate alerts)
+// Mock error endpoint (matching your /api/mock-error)
+app.get('/api/mock-error', (req, res) => {
+  res.status(500).json({ success: false, error: 'Simulated error for testing' });
+});
+
+// Also support simulate-error for compatibility
 app.get('/api/simulate-error', (req, res) => {
-  httpRequestsTotal.labels('GET', '/api/simulate-error', '5xx').inc();
   res.status(500).json({ success: false, error: 'Simulated error for testing' });
 });
 
@@ -217,8 +332,10 @@ app.get('/', (req, res) => {
     status: 'running',
     endpoints: {
       health: '/health',
-      metrics: '/metrics',
-      students: '/api/students'
+      metrics: '/api/metrics',
+      students: '/api/students',
+      mock_error: '/api/mock-error',
+      simulate_slow: '/api/simulate-slow'
     }
   });
 });
@@ -229,7 +346,7 @@ async function startServer() {
 
   app.listen(PORT, () => {
     console.log(`🚀 Backend API server running on port ${PORT}`);
-    console.log(`📊 Metrics available at http://localhost:${PORT}/metrics`);
+    console.log(`📊 Metrics available at http://localhost:${PORT}/api/metrics`);
     console.log(`❤️  Health check at http://localhost:${PORT}/health`);
   });
 }

@@ -428,7 +428,7 @@
         // Test endpoints for alerting
         async function testErrorEndpoint() {
             try {
-                await fetch(`${BACKEND_URL}/api/simulate-error`);
+                await fetch(`${BACKEND_URL}/api/mock-error`);
                 showMessage('Error endpoint called - check Prometheus alerts!', 'success');
             } catch (error) {
                 showMessage('Error simulation triggered', 'success');
