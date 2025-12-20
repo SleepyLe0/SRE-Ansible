@@ -1,7 +1,7 @@
 - name: Set up virtual machine on Proxmox
   hosts: localhost
   vars:
-    vm_name: godegapoke
+    vm_name: bookcnk
     vm_template: template
     proxmox_node: int531-05
     proxmox_api_host: 10.13.104.215
