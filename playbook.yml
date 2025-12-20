@@ -224,6 +224,75 @@
       ansible.builtin.pause:
         seconds: 5
 
+    - name: Ensure all apt processes are completely finished
+      ansible.builtin.shell: |
+        # Wait for all apt-related processes to finish
+        timeout=900
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+          # Check for running apt processes
+          if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+            echo "Apt processes still running, waiting... (${elapsed}s elapsed)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+            continue
+          fi
+          
+          # Check for lock files
+          if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+             fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+             fuser /var/cache/apt/archives/lock >/dev/null 2>&1; then
+            echo "Lock files still held, waiting... (${elapsed}s elapsed)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+            continue
+          fi
+          
+          # Try to acquire the lock to verify it's actually free
+          if lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+            echo "Lock-frontend still in use, waiting... (${elapsed}s elapsed)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+            continue
+          fi
+          
+          # All clear
+          echo "All apt processes finished and locks released"
+          exit 0
+        done
+        
+        echo "Timeout waiting for apt processes (${timeout}s)"
+        # Show what's still running
+        echo "Running apt processes:"
+        pgrep -a apt-get || echo "None"
+        pgrep -a apt || echo "None"
+        pgrep -a dpkg || echo "None"
+        echo "Lock status:"
+        lsof /var/lib/dpkg/lock-frontend 2>&1 || echo "Lock-frontend free"
+        exit 1
+      changed_when: false
+      register: final_apt_wait
+      timeout: 960
+
+    - name: Force cleanup if apt wait failed
+      ansible.builtin.shell: |
+        # Kill any remaining apt processes
+        killall -9 apt-get apt dpkg unattended-upgrades 2>/dev/null || true
+        # Remove lock files
+        rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+        # Fix any broken dpkg state
+        dpkg --configure -a 2>&1 || true
+        # Clean up any partial installations
+        apt-get -f install -y 2>&1 || true
+      when: final_apt_wait.rc != 0
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Verify apt is ready one final time
+      ansible.builtin.command: |
+        timeout 30 bash -c 'while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done' || true
+      changed_when: false
+
   roles:
     - common
     - app

@@ -2,6 +2,39 @@
 # roles/common/tasks/main.yml
 # Sets up users, SSH keys, NTP
 
+- name: Wait for apt locks before installing packages
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      # Check for running apt processes
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        echo "Apt processes still running, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      
+      # Check for lock files
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        echo "Lock files still held, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      
+      # All clear
+      echo "Apt locks released"
+      exit 0
+    done
+    echo "Timeout waiting for apt locks"
+    exit 1
+  changed_when: false
+  register: apt_lock_wait
+  timeout: 360
+  ignore_errors: yes
+
 - name: Update apt cache
   apt:
     update_cache: yes
@@ -10,6 +43,34 @@
   delay: 10
   register: apt_cache_result
   until: apt_cache_result is succeeded
+
+- name: Wait for apt locks before package installation
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        echo "Apt processes still running, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        echo "Lock files still held, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      echo "Apt locks released"
+      exit 0
+    done
+    echo "Timeout waiting for apt locks"
+    exit 1
+  changed_when: false
+  register: apt_lock_wait_install
+  timeout: 360
+  ignore_errors: yes
 
 - name: Install common packages
   apt:
@@ -21,8 +82,8 @@
       - htop
       - net-tools
     state: present
-  retries: 5
-  delay: 10
+  retries: 10
+  delay: 15
   register: apt_install_result
   until: apt_install_result is succeeded
 

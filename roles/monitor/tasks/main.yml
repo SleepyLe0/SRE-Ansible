@@ -1,6 +1,10 @@
 ---
 # roles/monitor/tasks/main.yml
-# Deploys Prometheus, Grafana, Alertmanager, and Node Exporter
+# Deploys Prometheus, Grafana, and Node Exporter using int531-sre-monitor repository
+
+# ============================================
+# NODE EXPORTER INSTALLATION
+# ============================================
 
 - name: Create prometheus user
   ansible.builtin.user:
@@ -8,29 +12,6 @@
     shell: /usr/sbin/nologin
     system: yes
     create_home: no
-
-- name: Create monitoring directories
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: '65534'
-    group: '65534'
-    mode: '0755'
-  loop:
-    - /opt/monitoring
-    - /opt/monitoring/prometheus
-    - /opt/monitoring/prometheus/data
-    - /opt/monitoring/grafana
-    - /opt/monitoring/grafana/data
-    - /opt/monitoring/grafana/provisioning
-    - /opt/monitoring/grafana/provisioning/datasources
-    - /opt/monitoring/grafana/provisioning/dashboards
-    - /opt/monitoring/alertmanager
-    - /opt/monitoring/alertmanager/data
-
-# ============================================
-# NODE EXPORTER INSTALLATION
-# ============================================
 
 - name: Download Node Exporter
   ansible.builtin.get_url:
@@ -83,136 +64,86 @@
     enabled: yes
 
 # ============================================
-# PROMETHEUS CONFIGURATION
+# CLONE MONITORING REPOSITORY
 # ============================================
 
-- name: Create Prometheus config from template
-  ansible.builtin.template:
-    src: prometheus.yml.j2
-    dest: /opt/monitoring/prometheus/prometheus.yml
-    owner: '65534'
-    group: '65534'
-    mode: '0644'
+- name: Remove existing monitoring directory if it exists
+  ansible.builtin.file:
+    path: /opt/monitoring
+    state: absent
 
-- name: Create Prometheus alert rules from template
-  ansible.builtin.template:
-    src: alert.rules.yml.j2
-    dest: /opt/monitoring/prometheus/alert.rules.yml
-    owner: '65534'
-    group: '65534'
-    mode: '0644'
+- name: Clone int531-sre-monitor repository
+  ansible.builtin.git:
+    repo: https://github.com/SleepyLe0/int531-sre-monitor.git
+    dest: /opt/monitoring
+    version: master
+    force: yes
+  register: git_clone_result
 
-- name: Deploy Prometheus with Docker
+- name: Set proper permissions on cloned repository
+  ansible.builtin.file:
+    path: /opt/monitoring
+    owner: sysadmin
+    group: sysadmin
+    mode: '0755'
+    recurse: yes
+
+# ============================================
+# UPDATE DOCKER COMPOSE CONFIGURATION
+# Docker Compose creates networks with project name prefix
+# Since app is in /opt/app, the network will be app_sre-network
+# ============================================
+
+- name: Check what network name was created by app docker-compose
   ansible.builtin.shell: |
-    docker rm -f prometheus 2>/dev/null || true
-    docker run -d \
-      --name prometheus \
-      --restart unless-stopped \
-      --network host \
-      -v /opt/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro \
-      -v /opt/monitoring/prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro \
-      -v /opt/monitoring/prometheus/data:/prometheus \
-      -u 65534:65534 \
-      prom/prometheus:latest \
-      --config.file=/etc/prometheus/prometheus.yml \
-      --storage.tsdb.path=/prometheus \
-      --web.console.libraries=/usr/share/prometheus/console_libraries \
-      --web.console.templates=/usr/share/prometheus/consoles \
-      --web.enable-lifecycle
-  become: yes
-  changed_when: true
+    docker network ls --format "{{ '{{.Name}}' }}" | grep -E "(app_sre-network|sre-network)" | head -1 || echo ""
+  register: existing_network
+  changed_when: false
+  failed_when: false
+
+- name: Set network name fact
+  ansible.builtin.set_fact:
+    app_network_name: "{{ (existing_network.stdout | trim) if (existing_network.stdout | trim | length > 0) else 'app_sre-network' }}"
+
+- name: Update prometheus network reference from int531-demo_sre-network to actual network name
+  ansible.builtin.replace:
+    path: /opt/monitoring/docker-compose.yml
+    regexp: "      - int531-demo_sre-network"
+    replace: "      - {{ app_network_name }}"
+
+- name: Update network definition to use actual network name
+  ansible.builtin.replace:
+    path: /opt/monitoring/docker-compose.yml
+    regexp: "  int531-demo_sre-network:"
+    replace: "  {{ app_network_name }}:"
+
+- name: Update Grafana root URL with actual IP address
+  ansible.builtin.replace:
+    path: /opt/monitoring/docker-compose.yml
+    regexp: "      - GF_SERVER_ROOT_URL=http://.*:3000"
+    replace: "      - GF_SERVER_ROOT_URL=http://{{ ansible_default_ipv4.address }}:3000"
 
 # ============================================
-# ALERTMANAGER CONFIGURATION
+# DEPLOY MONITORING STACK WITH DOCKER COMPOSE
 # ============================================
 
-- name: Create Alertmanager config from template
-  ansible.builtin.template:
-    src: alertmanager.yml.j2
-    dest: /opt/monitoring/alertmanager/alertmanager.yml
-    owner: '65534'
-    group: '65534'
-    mode: '0644'
+- name: Ensure app network exists before starting monitoring
+  ansible.builtin.command: docker network inspect {{ app_network_name }}
+  register: network_exists_check
+  changed_when: false
+  failed_when: false
 
-- name: Deploy Alertmanager with Docker
-  ansible.builtin.shell: |
-    docker rm -f alertmanager 2>/dev/null || true
-    docker run -d \
-      --name alertmanager \
-      --restart unless-stopped \
-      --network host \
-      -v /opt/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro \
-      -v /opt/monitoring/alertmanager/data:/alertmanager \
-      -u 65534:65534 \
-      prom/alertmanager:latest \
-      --config.file=/etc/alertmanager/alertmanager.yml \
-      --storage.path=/alertmanager
-  become: yes
-  changed_when: true
+- name: Wait a moment for app network to be ready if it exists
+  ansible.builtin.pause:
+    seconds: 2
+  when: network_exists_check.rc == 0
 
-# ============================================
-# GRAFANA CONFIGURATION
-# ============================================
-
-- name: Create Grafana datasource configuration
-  ansible.builtin.copy:
-    dest: /opt/monitoring/grafana/provisioning/datasources/prometheus.yml
-    content: |
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://{{ ansible_default_ipv4.address }}:9090
-          isDefault: true
-          editable: false
-    owner: '472'
-    group: '472'
-    mode: '0644'
-
-- name: Create Grafana dashboard provisioning configuration
-  ansible.builtin.copy:
-    dest: /opt/monitoring/grafana/provisioning/dashboards/dashboard.yml
-    content: |
-      apiVersion: 1
-      providers:
-        - name: 'Default'
-          orgId: 1
-          folder: ''
-          type: file
-          disableDeletion: false
-          updateIntervalSeconds: 10
-          allowUiUpdates: true
-          options:
-            path: /var/lib/grafana/dashboards
-    owner: '472'
-    group: '472'
-    mode: '0644'
-
-- name: Copy Grafana dashboard JSON
-  ansible.builtin.copy:
-    src: grafana-dashboard.json
-    dest: /opt/monitoring/grafana/data/grafana-dashboard.json
-    owner: '472'
-    group: '472'
-    mode: '0644'
-
-- name: Deploy Grafana with Docker
-  ansible.builtin.shell: |
-    docker rm -f grafana 2>/dev/null || true
-    docker run -d \
-      --name grafana \
-      --restart unless-stopped \
-      --network host \
-      -e GF_SECURITY_ADMIN_PASSWORD=admin \
-      -e GF_USERS_ALLOW_SIGN_UP=false \
-      -e GF_SERVER_HTTP_PORT=3000 \
-      -v /opt/monitoring/grafana/data:/var/lib/grafana \
-      -v /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning \
-      -u 472:472 \
-      grafana/grafana:latest
-  become: yes
-  changed_when: true
+- name: Start monitoring stack with Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: /opt/monitoring
+  register: docker_compose_result
+  changed_when: "'Creating' in docker_compose_result.stdout or 'Starting' in docker_compose_result.stdout or 'Building' in docker_compose_result.stdout"
 
 # ============================================
 # VERIFY SERVICES
@@ -222,13 +153,6 @@
   ansible.builtin.wait_for:
     host: localhost
     port: 9090
-    delay: 5
-    timeout: 60
-
-- name: Wait for Alertmanager to be ready
-  ansible.builtin.wait_for:
-    host: localhost
-    port: 9093
     delay: 5
     timeout: 60
 
@@ -250,6 +174,5 @@
   ansible.builtin.debug:
     msg:
       - "Prometheus: http://{{ ansible_default_ipv4.address }}:9090"
-      - "Alertmanager: http://{{ ansible_default_ipv4.address }}:9093"
       - "Grafana: http://{{ ansible_default_ipv4.address }}:3000 (admin/admin)"
       - "Node Exporter: http://{{ ansible_default_ipv4.address }}:9100/metrics"

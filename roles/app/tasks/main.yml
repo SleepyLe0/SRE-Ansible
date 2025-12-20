@@ -2,6 +2,34 @@
 # roles/app/tasks/main.yml
 # Deploys the containerized application
 
+- name: Wait for apt locks before installing Docker dependencies
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        echo "Apt processes still running, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        echo "Lock files still held, waiting... (${elapsed}s elapsed)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      echo "Apt locks released"
+      exit 0
+    done
+    echo "Timeout waiting for apt locks"
+    exit 1
+  changed_when: false
+  register: apt_lock_wait_docker
+  timeout: 360
+  ignore_errors: yes
+
 - name: Install Docker dependencies
   apt:
     name:
@@ -11,19 +39,77 @@
       - gnupg
       - lsb-release
     state: present
+  retries: 10
+  delay: 15
+  register: docker_deps_result
+  until: docker_deps_result is succeeded
+
+- name: Wait for apt locks before installing Docker Engine
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      exit 0
+    done
+    exit 1
+  changed_when: false
+  timeout: 360
+  ignore_errors: yes
 
 - name: Install Docker Engine (apt version)
   apt:
     name: docker.io
     state: present
+  retries: 10
+  delay: 15
+  register: docker_install_result
+  until: docker_install_result is succeeded
 
 - name: Reset SSH connection after Docker install
   ansible.builtin.meta: reset_connection
+
+- name: Wait for apt locks before installing Docker Compose
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      exit 0
+    done
+    exit 1
+  changed_when: false
+  timeout: 360
+  ignore_errors: yes
 
 - name: Install Docker Compose v2
   apt:
     name: docker-compose-v2
     state: present
+  retries: 10
+  delay: 15
+  register: docker_compose_install_result
+  until: docker_compose_install_result is succeeded
 
 - name: Ensure Docker service is running
   ansible.builtin.systemd_service:
@@ -37,35 +123,82 @@
     groups: docker
     append: yes
 
-- name: Create app directory
+- name: Wait for apt locks before installing git
+  ansible.builtin.shell: |
+    timeout=300
+    elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+      if pgrep -x apt-get > /dev/null || pgrep -x apt > /dev/null || pgrep -x dpkg > /dev/null; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+         fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+        sleep 5
+        elapsed=$((elapsed + 5))
+        continue
+      fi
+      exit 0
+    done
+    exit 1
+  changed_when: false
+  timeout: 360
+  ignore_errors: yes
+
+- name: Install git
+  apt:
+    name: git
+    state: present
+  retries: 10
+  delay: 15
+  register: git_install_result
+  until: git_install_result is succeeded
+
+- name: Remove existing app directory if it exists
   ansible.builtin.file:
     path: /opt/app
-    state: directory
+    state: absent
+
+- name: Clone int531-demo repository
+  ansible.builtin.git:
+    repo: https://github.com/SleepyLe0/int531-demo.git
+    dest: /opt/app
+    version: main
+    force: yes
+  register: git_clone_result
+
+- name: Set proper permissions on cloned repository
+  ansible.builtin.file:
+    path: /opt/app
     owner: sysadmin
     group: sysadmin
     mode: '0755'
+    recurse: yes
 
-- name: Copy docker-compose.yml
-  ansible.builtin.template:
-    src: docker-compose.yml.j2
-    dest: /opt/app/docker-compose.yml
-    owner: sysadmin
-    group: sysadmin
-    mode: '0644'
+- name: Create .env file from .env.example if it doesn't exist
+  ansible.builtin.shell: |
+    if [ -f /opt/app/.env.example ] && [ ! -f /opt/app/.env ]; then
+      cp /opt/app/.env.example /opt/app/.env
+      chown sysadmin:sysadmin /opt/app/.env
+      chmod 644 /opt/app/.env
+    fi
+  changed_when: false
+  ignore_errors: yes
 
 - name: Start application with Docker Compose
   ansible.builtin.command:
-    cmd: docker compose up -d
+    cmd: docker compose up -d --build
     chdir: /opt/app
   register: docker_compose_result
-  changed_when: "'Creating' in docker_compose_result.stdout or 'Starting' in docker_compose_result.stdout"
+  changed_when: "'Creating' in docker_compose_result.stdout or 'Starting' in docker_compose_result.stdout or 'Building' in docker_compose_result.stdout"
 
 - name: Wait for Next.js app to be ready
   ansible.builtin.wait_for:
     host: localhost
     port: 3100
     delay: 5
-    timeout: 60
+    timeout: 180
 
 - name: Display application URLs
   ansible.builtin.debug:
