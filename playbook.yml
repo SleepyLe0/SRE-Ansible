@@ -97,9 +97,35 @@
           ipconfig0: 'ip={{ vm_target_ip }}/24,gw=10.13.104.254'
         update: yes
 
+    - name: Ensure cloud-init drive exists on cloned VM
+      ansible.builtin.command:
+        cmd: "qm set {{ new_vm.vmid }} --ide2 local-lvm:cloudinit"
+      delegate_to: "{{ proxmox_api_host }}"
+      vars:
+        ansible_user: root
+        ansible_ssh_pass: int53105
+      ignore_errors: yes
+      register: cloudinit_drive
+      changed_when: "'update' in cloudinit_drive.stdout"
+
+    - name: Regenerate cloud-init configuration
+      ansible.builtin.command:
+        cmd: "qm cloudinit dump {{ new_vm.vmid }} user"
+      delegate_to: "{{ proxmox_api_host }}"
+      vars:
+        ansible_user: root
+        ansible_ssh_pass: int53105
+      register: cloudinit_config
+      ignore_errors: yes
+
+    - name: Display cloud-init configuration
+      ansible.builtin.debug:
+        msg: "{{ cloudinit_config.stdout_lines }}"
+      when: cloudinit_config.stdout_lines is defined
+
     - name: Wait a moment for configuration to apply
       ansible.builtin.pause:
-        seconds: 5
+        seconds: 10
 
     - name: Start VM
       community.proxmox.proxmox_kvm:
