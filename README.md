@@ -37,7 +37,7 @@
 **One-Command Deployment:**
 
 ```bash
-cd ansible-example
+cd SRE-Ansible
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
