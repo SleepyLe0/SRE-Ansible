@@ -80,9 +80,10 @@
         storage: local-lvm
         format: qcow2
         timeout: 100
+        full: false
       register: new_vm
 
-    - name: Update VM
+    - name: Update VM configuration
       community.proxmox.proxmox_kvm:
         api_user: "{{ proxmox_api_user }}"
         api_password: "{{ proxmox_api_password }}"
@@ -92,9 +93,15 @@
         ciuser: root
         cipassword: int53102
         sshkeys: "{{ vm_ssh_pubkey }}"
+        nameservers: 8.8.8.8
+        searchdomains: localdomain
         ipconfig:
           ipconfig0: 'ip={{ vm_target_ip }}/24,gw=10.13.104.254'
         update: yes
+
+    - name: Wait a moment for configuration to apply
+      ansible.builtin.pause:
+        seconds: 5
 
     - name: Start VM
       community.proxmox.proxmox_kvm:
@@ -105,12 +112,21 @@
         node: "{{ proxmox_node }}"
         state: started
 
+    - name: Display VM info
+      ansible.builtin.debug:
+        msg:
+          - "VM ID: {{ new_vm.vmid }}"
+          - "VM Name: {{ vm_name }}"
+          - "Target IP: {{ vm_target_ip }}"
+          - "Waiting for cloud-init to configure network..."
+
     - name: Wait for VM to be reachable via SSH
       ansible.builtin.wait_for:
         host: "{{ vm_target_ip }}"
         port: 22
-        delay: 15
-        timeout: 450
+        delay: 30
+        timeout: 300
+        sleep: 5
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: cloud-init status --wait
