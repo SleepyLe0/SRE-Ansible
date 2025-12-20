@@ -1,6 +1,6 @@
 # INT531 SRE Final Capstone - Ansible Deployment
 
-> **Complete automation for deploying a 3-tier application with comprehensive monitoring stack on Proxmox**
+> **Complete automation for deploying a Next.js SSR application with comprehensive monitoring stack on Proxmox**
 
 [![Ansible](https://img.shields.io/badge/Ansible-2.15+-red.svg)](https://www.ansible.com/)
 [![Docker](https://img.shields.io/badge/Docker-24.0+-blue.svg)](https://www.docker.com/)
@@ -45,13 +45,13 @@ ansible-playbook -i inventory.ini playbook.yml
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Frontend | `http://10.13.104.221:3000` | - |
-| Backend API | `http://10.13.104.221:3001` | - |
-| Grafana | `http://10.13.104.221:3001` | admin/admin |
-| Prometheus | `http://10.13.104.221:9090` | - |
-| Alertmanager | `http://10.13.104.221:9093` | - |
+| Next.js App | `http://10.13.104.81:3100` | - |
+| Grafana | `http://10.13.104.81:3000` | admin/admin |
+| Prometheus | `http://10.13.104.81:9090` | - |
+| Database | `10.13.104.81:3306` | - |
+| Node Exporter | `http://10.13.104.81:9100/metrics` | - |
 
-> **Note**: Replace `10.13.104.221` with your actual VM IP address configured in `inventory.ini`
+> **Note**: Replace `10.13.104.81` with your actual VM IP address configured in `playbook.yml` (vm_target_ip)
 
 ---
 
@@ -67,19 +67,17 @@ ansible-playbook -i inventory.ini playbook.yml
 │  │              (10.13.104.221)                           │ │
 │  │                                                        │ │
 │  │  ┌──────────────────────────────────────────────────┐ │ │
-│  │  │         Application Tier (Docker Compose)        │ │ │
+│  │  │         Application Tier (Docker Compose)      │ │ │
 │  │  │                                                  │ │ │
-│  │  │  Frontend (Node.js) ────────► Port 3000         │ │ │
-│  │  │  Backend (Node.js API) ─────► Port 3001         │ │ │
-│  │  │  Database (MariaDB) ────────► Port 3306         │ │ │
+│  │  │  Next.js App (SSR) ─────────► Port 3100       │ │ │
+│  │  │  Database (MariaDB) ─────────► Port 3306       │ │ │
 │  │  └──────────────────────────────────────────────────┘ │ │
 │  │                                                        │ │
 │  │  ┌──────────────────────────────────────────────────┐ │ │
-│  │  │         Monitoring Tier (Docker)                 │ │ │
+│  │  │         Monitoring Tier (Docker Compose)         │ │ │
 │  │  │                                                  │ │ │
 │  │  │  Prometheus ────────────────► Port 9090         │ │ │
-│  │  │  Grafana ───────────────────► Port 3001         │ │ │
-│  │  │  Alertmanager ──────────────► Port 9093         │ │ │
+│  │  │  Grafana ───────────────────► Port 3000         │ │ │
 │  │  │  Node Exporter (systemd) ───► Port 9100         │ │ │
 │  │  └──────────────────────────────────────────────────┘ │ │
 │  └────────────────────────────────────────────────────────┘ │
@@ -194,7 +192,7 @@ ssh root@10.13.104.212
 ## 📂 Project Structure
 
 ```
-ansible-example/
+SRE-Ansible/
 ├── inventory.ini                     # Inventory configuration
 ├── playbook.yml                      # Main orchestration playbook
 ├── README.md                         # This comprehensive guide
@@ -204,32 +202,17 @@ ansible-example/
 └── roles/
     ├── common/                       # System configuration role
     │   └── tasks/
-    │       └── main.yml              # User setup, NTP, timezone
+    │       └── main.yml              # User setup, NTP, timezone, packages
     │
     ├── app/                          # Application deployment role
-    │   ├── tasks/
-    │   │   └── main.yml              # Docker install & app deploy
-    │   ├── templates/
-    │   │   └── docker-compose.yml.j2 # Compose template
-    │   └── files/
-    │       ├── frontend/             # Frontend application
-    │       │   ├── package.json
-    │       │   ├── server.js
-    │       │   └── public/
-    │       │       └── index.html
-    │       └── backend/              # Backend API
-    │           ├── package.json
-    │           └── server.js
+    │   └── tasks/
+    │       └── main.yml              # Docker install & app deploy
+    │                                 # Clones: https://github.com/SleepyLe0/int531-demo.git
     │
     └── monitor/                      # Monitoring stack role
-        ├── tasks/
-        │   └── main.yml              # Prometheus, Grafana, etc.
-        ├── templates/
-        │   ├── prometheus.yml.j2     # Scrape configuration
-        │   ├── alert.rules.yml.j2    # Alert definitions
-        │   └── alertmanager.yml.j2   # Alert routing
-        └── files/
-            └── grafana-dashboard.json # Four Golden Signals dashboard
+        └── tasks/
+            └── main.yml              # Prometheus, Grafana, Node Exporter
+                                     # Clones: https://github.com/SleepyLe0/int531-sre-monitor.git
 ```
 
 ---
@@ -347,10 +330,9 @@ exit
 
 Open these URLs in your browser:
 
-- Frontend: `http://10.13.104.221:3000`
-- Grafana: `http://10.13.104.221:3001` (admin/admin)
-- Prometheus: `http://10.13.104.221:9090/targets` (all should be "UP")
-- Alertmanager: `http://10.13.104.221:9093`
+- Next.js App: `http://10.13.104.81:3100`
+- Grafana: `http://10.13.104.81:3000` (admin/admin)
+- Prometheus: `http://10.13.104.81:9090/targets` (all should be "UP")
 
 ---
 
@@ -374,91 +356,73 @@ Open these URLs in your browser:
 
 **Tasks:**
 - ✅ Installs Docker CE and Docker Compose V2
-- ✅ Creates application directories (`/opt/app`)
-- ✅ Deploys Frontend (Node.js on port 3000)
-- ✅ Deploys Backend (Express.js API on port 3001)
+- ✅ Installs Git
+- ✅ Clones `https://github.com/SleepyLe0/int531-demo.git` to `/opt/app`
+- ✅ Creates `.env` file from `.env.example` if needed
+- ✅ Deploys Next.js SSR application (port 3100)
 - ✅ Deploys Database (MariaDB on port 3306)
-- ✅ Waits for all services to be healthy
+- ✅ Waits for application to be ready
 
 **Containers Deployed:**
-- `frontend-app`: Student management web UI
-- `backend-app`: RESTful API with Prometheus metrics
-- `mariadb-db`: Database with persistent volumes
+- `x-nextjs-app`: Next.js Server-Side Rendered application
+- `x-mariadb`: Database with persistent volumes and Drizzle migrations
 
 **Application Features:**
 - 📝 Full CRUD operations for student management
 - 📊 Prometheus metrics export at `/api/metrics`
-- 🧪 Test endpoints for chaos testing
-- 🔍 Health check endpoints
-- 🎨 Modern responsive UI
+- 🎨 Modern Next.js UI with SSR
+- 🗄️ Drizzle ORM for database management
+- 🔄 Automatic database migrations on startup
 
 ### Role 3: Monitor (Observability Stack)
 
 **Tasks:**
 - ✅ Installs Node Exporter as systemd service
-- ✅ Deploys Prometheus with Docker (port 9090)
-- ✅ Deploys Grafana with Docker (port 3001)
-- ✅ Deploys Alertmanager with Docker (port 9093)
-- ✅ Auto-provisions Grafana datasource and dashboard
-- ✅ Configures 10 alert rules
+- ✅ Clones `https://github.com/SleepyLe0/int531-sre-monitor.git` to `/opt/monitoring`
+- ✅ Updates docker-compose.yml to connect to app network
+- ✅ Deploys Prometheus with Docker Compose (port 9090)
+- ✅ Deploys Grafana with Docker Compose (port 3000)
+- ✅ Configures Prometheus to scrape app metrics
 - ✅ Verifies all services are healthy
 
 **Services Deployed:**
-- **Prometheus**: Metrics collection and alert evaluation
-- **Grafana**: Four Golden Signals dashboard
-- **Alertmanager**: Discord webhook integration
-- **Node Exporter**: System-level metrics
+- **Prometheus**: Metrics collection from Next.js app and Node Exporter
+- **Grafana**: Pre-configured dashboards for monitoring
+- **Node Exporter**: System-level metrics (CPU, memory, disk, network)
 
-**Alert Rules:**
-1. HighErrorRate (>1% 5xx errors)
-2. HighLatency (P95 > 1 second)
-3. HighCPUUsage (>85%)
-4. HighMemoryUsage (>85%)
-5. ServiceDown (any service unreachable)
-6. DiskSpaceLow (<10% free)
-7. SLOBurnRateHigh (99.9% SLO violation)
-8. DatabaseConnectionHigh (>80% pool)
-9. ContainerRestartLoop (>5 restarts/10min)
-10. HighClientErrorRate (>5% 4xx errors)
+**Monitoring Configuration:**
+- Prometheus scrapes: `prometheus:9090`, `host.docker.internal:9100` (Node Exporter), `x-nextjs-app:3100/api/metrics` (App metrics)
+- Grafana dashboards available in `/opt/monitoring/grafana/dashboards/`
+- Network connectivity between monitoring stack and application via Docker networks
 
 ---
 
 ## ⚙️ Configuration
 
-### Update Discord Webhook (Optional)
-
-Edit `roles/monitor/templates/alertmanager.yml.j2`:
-
-```yaml
-receivers:
-  - name: 'discord-notifications'
-    webhook_configs:
-      - url: 'https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_TOKEN'
-```
-
-Redeploy monitoring:
-
-```bash
-ansible-playbook playbook.yml --tags monitor
-```
-
 ### Modify Application Code
 
-Edit files in:
-- `roles/app/files/frontend/` - Frontend code
-- `roles/app/files/backend/` - Backend code
+The application code is cloned from GitHub. To modify:
 
-Redeploy application:
+1. Fork/clone `https://github.com/SleepyLe0/int531-demo.git`
+2. Make your changes
+3. Push to your repository
+4. Update `roles/app/tasks/main.yml` to point to your repository
+5. Redeploy:
 
 ```bash
 ansible-playbook playbook.yml --tags app
 ```
 
-### Update Alert Thresholds
+### Modify Monitoring Configuration
 
-Edit `roles/monitor/templates/alert.rules.yml.j2`
+The monitoring configuration is cloned from GitHub. To modify:
 
-Redeploy monitoring:
+1. Fork/clone `https://github.com/SleepyLe0/int531-sre-monitor.git`
+2. Edit Prometheus config in `prometheus/prometheus.yml`
+3. Edit Grafana dashboards in `grafana/dashboards/`
+4. Push to your repository
+5. Update `roles/monitor/tasks/main.yml` to point to your repository
+6. Redeploy:
 
 ```bash
 ansible-playbook playbook.yml --tags monitor
@@ -485,70 +449,59 @@ docker logs mariadb-db
 
 ### 2. Test Application
 
-1. Open frontend: `http://10.13.104.221:3000`
-2. Add a student (fill form and click "Add Student")
-3. Verify it appears in the list
-4. Update a student
-5. Delete a student
-6. Verify all CRUD operations work
+1. Open Next.js app: `http://10.13.104.81:3100`
+2. Test CRUD operations (Add, Update, Delete students)
+3. Verify database persistence
+4. Check application metrics at `http://10.13.104.81:3100/api/metrics`
 
 ### 3. Test Monitoring
 
-1. Open Grafana: `http://10.13.104.221:3001`
+1. Open Grafana: `http://10.13.104.81:3000`
 2. Login with `admin` / `admin`
-3. Navigate to "INT531 SRE - Four Golden Signals" dashboard
-4. Observe real-time metrics updating
+3. Navigate to Dashboards section
+4. Import dashboards from `/opt/monitoring/grafana/dashboards/` if needed
+5. Observe real-time metrics updating
 
-### 4. Test Alerting
+### 4. Verify Prometheus Scraping
 
-**Trigger High Error Rate Alert:**
+**Check Prometheus Targets:**
 
 ```bash
-# Using frontend
-# Click "Test Error Alert" button
+# View targets status
+curl http://10.13.104.81:9090/api/v1/targets
 
-# Or using curl
-for i in {1..100}; do
-  curl http://10.13.104.221:3001/api/mock-error
-done
+# Or visit: http://10.13.104.81:9090/targets
+# All targets should show "UP" status
 ```
 
-**Trigger High Latency Alert:**
+**Check App Metrics:**
 
 ```bash
-# Click "Test Latency Alert" button in frontend
-# Or:
-curl http://10.13.104.221:3001/api/simulate-slow
-```
+# Verify app metrics endpoint
+curl http://10.13.104.81:3100/api/metrics
 
-**Check Alerts Fired:**
-
-```bash
-# View in Prometheus
-curl http://10.13.104.221:9090/api/v1/alerts
-
-# Or visit: http://10.13.104.221:9090/alerts
+# Should return Prometheus-formatted metrics
 ```
 
 ### 5. Chaos Testing Scenarios
 
-**Scenario 1: Backend Service Kill**
+**Scenario 1: Application Service Kill**
 
 ```bash
-ssh -i privatekey root@10.13.104.221
-docker kill backend-app
+ssh -i privatekey root@10.13.104.81
+docker kill x-nextjs-app
 
 # Watch for restart policy
-docker ps -a | grep backend
+docker ps -a | grep x-nextjs-app
 
-# Check if ServiceDown alert fired
-curl http://10.13.104.221:9090/api/v1/alerts
+# Check Prometheus targets
+curl http://10.13.104.81:9090/api/v1/targets
 ```
 
 **Scenario 2: High CPU Simulation**
 
 ```bash
-ssh -i privatekey root@10.13.104.221
+ssh -i privatekey root@10.13.104.81
 apt install stress -y
 stress --cpu 4 --timeout 600
 
@@ -560,7 +513,7 @@ stress --cpu 4 --timeout 600
 ```bash
 stress --vm 2 --vm-bytes 1G --timeout 600
 
-# Watch HighMemoryUsage alert fire
+# Watch metrics in Grafana
 ```
 
 **Scenario 4: Load Testing**
@@ -570,7 +523,7 @@ stress --vm 2 --vm-bytes 1G --timeout 600
 apt install apache2-utils -y
 
 # Run load test
-ab -n 10000 -c 100 http://10.13.104.221:3001/api/students
+ab -n 10000 -c 100 http://10.13.104.81:3100/api/students
 
 # Monitor in real-time
 watch -n 1 'docker stats --no-stream'
@@ -616,16 +569,17 @@ Availability = (Successful Requests / Total Requests) × 100
 (sum(rate(http_requests_total{status!~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100
 ```
 
-### Alert Notification Flow
+### Metrics Collection Flow
 
 ```
-Alert Fires → Prometheus → Alertmanager → Discord Webhook
+Next.js App → /api/metrics → Prometheus → Grafana Dashboards
+Node Exporter → Port 9100 → Prometheus → Grafana Dashboards
 ```
 
-**Severity Levels:**
-- 🔴 **Critical**: Immediate action required (ServiceDown, HighErrorRate, SLOBurnRateHigh)
-- ⚠️ **Warning**: Action needed soon (HighLatency, HighCPUUsage, HighMemoryUsage)
-- ℹ️ **Info**: Awareness (HighClientErrorRate, ContainerRestartLoop)
+**Key Metrics:**
+- 🔴 **Application Metrics**: HTTP requests, latency, errors from Next.js app
+- ⚠️ **System Metrics**: CPU, memory, disk, network from Node Exporter
+- ℹ️ **Database Metrics**: Query performance, connections (if exposed)
 
 ---
 
@@ -635,24 +589,22 @@ Alert Fires → Prometheus → Alertmanager → Discord Webhook
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Frontend | `http://10.13.104.221:3000` | Student Management UI |
-| Backend API | `http://10.13.104.221:3001` | REST API |
-| Backend Metrics | `http://10.13.104.221:3001/api/metrics` | Prometheus metrics |
-| Prometheus | `http://10.13.104.221:9090` | Metrics & Alerts |
-| Prometheus Targets | `http://10.13.104.221:9090/targets` | Scrape targets status |
-| Prometheus Alerts | `http://10.13.104.221:9090/alerts` | Active alerts |
-| Grafana | `http://10.13.104.221:3001` | Dashboards (admin/admin) |
-| Alertmanager | `http://10.13.104.221:9093` | Alert management |
-| Node Exporter | `http://10.13.104.221:9100/metrics` | System metrics |
+| Next.js App | `http://10.13.104.81:3100` | Student Management UI (SSR) |
+| App Metrics | `http://10.13.104.81:3100/api/metrics` | Prometheus metrics endpoint |
+| Prometheus | `http://10.13.104.81:9090` | Metrics collection & query |
+| Prometheus Targets | `http://10.13.104.81:9090/targets` | Scrape targets status |
+| Grafana | `http://10.13.104.81:3000` | Dashboards (admin/admin) |
+| Node Exporter | `http://10.13.104.81:9100/metrics` | System metrics |
+| Database | `10.13.104.81:3306` | MariaDB (internal use) |
 
 ### SSH Access
 
 ```bash
-# Access VM
-ssh -i privatekey root@10.13.104.221
+# Access VM (use IP from playbook.yml vm_target_ip)
+ssh -i privatekey root@10.13.104.81
 
-# Access Proxmox
-ssh root@10.13.104.212
+# Access Proxmox (use IP from playbook.yml proxmox_api_host)
+ssh root@10.13.104.215
 ```
 
 ### Docker Commands
@@ -662,12 +614,11 @@ ssh root@10.13.104.212
 docker ps
 
 # View logs
-docker logs -f backend-app
-docker logs -f frontend-app
-docker logs -f mariadb-db
+docker logs -f x-nextjs-app
+docker logs -f x-mariadb
 
 # Restart container
-docker restart backend-app
+docker restart x-nextjs-app
 
 # Restart all application containers
 cd /opt/app
@@ -677,17 +628,24 @@ docker compose restart
 docker compose down
 
 # Start all containers
-docker compose up -d
+docker compose up -d --build
 
 # Check resource usage
 docker stats --no-stream
+
+# Restart monitoring stack
+cd /opt/monitoring
+docker compose restart
 ```
 
 ### Database Access
 
 ```bash
-# Connect to MariaDB
-docker exec -it mariadb-db mysql -u appuser -papppassword students_db
+# Connect to MariaDB (check .env for credentials)
+docker exec -it x-mariadb mysql -u appuser -papppassword students_db
+
+# Or use environment variables from .env
+docker exec -it x-mariadb mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} ${MYSQL_DATABASE}
 
 # Run queries
 SELECT * FROM students;
@@ -713,15 +671,13 @@ systemctl restart docker
 ### Health Checks
 
 ```bash
-# Application health
-curl http://10.13.104.221:3000/health    # Frontend
-curl http://10.13.104.221:3001/health    # Backend
-curl http://10.13.104.221:3001/api/metrics  # Metrics
+# Application health (replace IP with your VM IP)
+curl http://10.13.104.81:3100/health     # Next.js app
+curl http://10.13.104.81:3100/api/metrics  # Metrics endpoint
 
 # Monitoring health
-curl http://10.13.104.221:9090/-/healthy # Prometheus
-curl http://10.13.104.221:9093/-/healthy # Alertmanager
-curl http://10.13.104.221:9100/metrics   # Node Exporter
+curl http://10.13.104.81:9090/-/healthy # Prometheus
+curl http://10.13.104.81:9100/metrics   # Node Exporter
 ```
 
 ### Useful Prometheus Queries
@@ -772,7 +728,9 @@ ansible-playbook playbook.yml --tags common
 
 ## 🔍 Metrics Details
 
-### Backend Exports Three Metric Tiers
+### Next.js App Exports Metrics
+
+The Next.js application exports Prometheus metrics at `/api/metrics` endpoint, including:
 
 #### 1. HTTP Metrics
 
@@ -785,28 +743,9 @@ http_request_duration_seconds{method, route, status}
 
 # Error counter
 http_requests_errors_total{method, route, status}
-
-# Active requests gauge
-active_requests
 ```
 
-#### 2. Database Metrics
-
-```prometheus
-# Query counter
-db_queries_total{operation, table}
-
-# Query duration histogram
-db_query_duration_seconds{operation, table}
-
-# Query error counter
-db_query_errors_total{operation, table}
-
-# Active connections gauge
-db_active_connections
-```
-
-#### 3. Node.js Default Metrics
+#### 2. Node.js Default Metrics
 
 ```prometheus
 # CPU
@@ -827,9 +766,8 @@ nodejs_gc_duration_seconds
 
 ### Metrics Endpoints
 
-**Backend provides two endpoints:**
-- `/api/metrics` - Primary metrics endpoint (matches existing schema)
-- `/metrics` - Alternative endpoint (Prometheus default)
+**Next.js app provides:**
+- `/api/metrics` - Prometheus metrics endpoint (scraped by Prometheus)
 
 **Example Metrics Output:**
 
@@ -918,27 +856,31 @@ qm list
 
 **Symptoms:**
 - `docker ps` shows containers in "Restarting" state
-- Backend or frontend not accessible
+- Next.js app not accessible
 
 **Solution:**
 ```bash
-ssh -i privatekey root@10.13.104.221
+ssh -i privatekey root@10.13.104.81
 
 # Check logs
-docker logs backend-app
-docker logs frontend-app
+docker logs x-nextjs-app
+docker logs x-mariadb
 
 # Common fixes:
 # 1. Database not ready
-docker logs mariadb-db
+docker logs x-mariadb
+# Wait for database to be healthy
 
 # 2. Port already in use
-netstat -tlnp | grep -E '3000|3001|3306'
+netstat -tlnp | grep -E '3100|3306'
 
-# 3. Restart all services
+# 3. Check .env file exists
+ls -la /opt/app/.env
+
+# 4. Restart all services
 cd /opt/app
 docker compose down
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### Issue 5: Prometheus Not Scraping
@@ -950,19 +892,23 @@ docker compose up -d
 **Solution:**
 ```bash
 # Check Prometheus targets
-curl http://10.13.104.221:9090/api/v1/targets
+curl http://10.13.104.81:9090/api/v1/targets
 
-# Check backend metrics endpoint
-curl http://10.13.104.221:3001/api/metrics
+# Check app metrics endpoint
+curl http://10.13.104.81:3100/api/metrics
 
 # Check Prometheus config
 docker exec prometheus cat /etc/prometheus/prometheus.yml
+
+# Check network connectivity
+docker network inspect app_sre-network
 
 # Reload Prometheus
 docker exec prometheus kill -HUP 1
 
 # Or restart
-docker restart prometheus
+cd /opt/monitoring
+docker compose restart prometheus
 ```
 
 ### Issue 6: Grafana Dashboard Not Loading
@@ -977,39 +923,42 @@ docker restart prometheus
 docker logs grafana
 
 # Verify datasource
-curl -u admin:admin http://10.13.104.221:3001/api/datasources
+curl -u admin:admin http://10.13.104.81:3000/api/datasources
 
 # Restart Grafana
-docker restart grafana
+cd /opt/monitoring
+docker compose restart grafana
 
-# Re-import dashboard manually:
+# Import dashboards manually:
 # 1. Login to Grafana
 # 2. Navigate to Dashboards → Import
-# 3. Upload roles/monitor/files/grafana-dashboard.json
+# 3. Upload JSON files from /opt/monitoring/grafana/dashboards/
 ```
 
-### Issue 7: Alerts Not Firing
+### Issue 7: Prometheus Not Scraping App Metrics
 
 **Symptoms:**
-- Alerts don't trigger even when thresholds exceeded
-- No notifications received
+- App metrics not appearing in Prometheus
+- Targets show connection errors
 
 **Solution:**
 ```bash
-# Check Prometheus alert rules
-curl http://10.13.104.221:9090/api/v1/rules
+# Check if app is exposing metrics
+curl http://10.13.104.81:3100/api/metrics
 
-# Check Alertmanager config
-docker exec alertmanager cat /etc/alertmanager/alertmanager.yml
+# Check Prometheus targets
+curl http://10.13.104.81:9090/api/v1/targets
 
-# Check Alertmanager status
-curl http://10.13.104.221:9093/api/v2/status
+# Verify network connectivity
+docker network inspect app_sre-network | grep -A 5 prometheus
+docker network inspect app_sre-network | grep -A 5 x-nextjs-app
 
-# Reload Alertmanager
-docker exec alertmanager kill -HUP 1
+# Check Prometheus config
+docker exec prometheus cat /etc/prometheus/prometheus.yml
 
-# Manually trigger test alert
-curl http://10.13.104.221:3001/api/mock-error
+# Restart Prometheus
+cd /opt/monitoring
+docker compose restart prometheus
 ```
 
 ### Issue 8: High Memory Usage / OOM
@@ -1057,7 +1006,7 @@ timeout: 600  # From 450 to 600 seconds
 
 **Solution:**
 ```bash
-ssh -i privatekey root@10.13.104.221
+ssh -i privatekey root@10.13.104.81
 
 # Check disk usage
 df -h
@@ -1069,6 +1018,10 @@ docker volume prune -f
 # Check logs size
 du -sh /var/log/
 du -sh /var/lib/docker/
+
+# Clean application data if needed
+cd /opt/app
+docker compose down -v
 ```
 
 ---
@@ -1079,34 +1032,34 @@ du -sh /var/lib/docker/
 
 ```
 Application:
-  /opt/app/                           - Application root
+  /opt/app/                           - Application root (cloned from GitHub)
   /opt/app/docker-compose.yml         - Compose file
-  /opt/app/frontend/                  - Frontend code
-  /opt/app/backend/                   - Backend code
+  /opt/app/.env                       - Environment variables
+  /opt/app/src/                       - Next.js source code
+  /opt/app/drizzle/                   - Database migrations
 
 Monitoring:
-  /opt/monitoring/prometheus/         - Prometheus config & data
-  /opt/monitoring/grafana/            - Grafana dashboards & data
-  /opt/monitoring/alertmanager/       - Alertmanager config & data
+  /opt/monitoring/                    - Monitoring root (cloned from GitHub)
+  /opt/monitoring/docker-compose.yml - Compose file
+  /opt/monitoring/prometheus/         - Prometheus config
+  /opt/monitoring/grafana/            - Grafana dashboards
   /usr/local/bin/node_exporter        - Node Exporter binary
   /etc/systemd/system/node_exporter.service - Service definition
 
 Logs:
   docker logs [container-name]        - Container logs
   /var/log/syslog                     - System logs
-  journalctl -u [service-name]        - Service logs
+  journalctl -u node_exporter          - Node Exporter logs
 ```
 
 ### Port Reference
 
 | Service | Port | Protocol | Description |
 |---------|------|----------|-------------|
-| Frontend | 3000 | HTTP | Web UI |
-| Backend | 3001 | HTTP | REST API & Metrics |
+| Next.js App | 3100 | HTTP | Web UI (SSR) |
 | Database | 3306 | TCP | MariaDB |
-| Prometheus | 9090 | HTTP | Metrics & Alerts |
-| Alertmanager | 9093 | HTTP | Alert Management |
-| Grafana | 3001 | HTTP | Dashboards |
+| Prometheus | 9090 | HTTP | Metrics Collection |
+| Grafana | 3000 | HTTP | Dashboards |
 | Node Exporter | 9100 | HTTP | System Metrics |
 
 ### Documentation Links
@@ -1120,9 +1073,9 @@ Logs:
 
 ### Emergency Procedures
 
-**If alerts fire during chaos testing:**
+**If issues occur during chaos testing:**
 
-1. ✅ Check Prometheus alerts: `http://10.13.104.221:9090/alerts`
+1. ✅ Check Prometheus targets: `http://10.13.104.81:9090/targets`
 2. ✅ Check Grafana dashboard for metrics trend
 3. ✅ SSH into VM and check container status: `docker ps -a`
 4. ✅ Review logs for root cause: `docker logs [container-name]`
@@ -1136,7 +1089,7 @@ Logs:
 cd /opt/app && docker compose restart
 
 # Restart monitoring stack
-docker restart prometheus grafana alertmanager
+cd /opt/monitoring && docker compose restart
 
 # Complete system restart
 reboot
@@ -1162,11 +1115,13 @@ qm destroy <VM_ID>
 **Remove all containers and data on VM:**
 
 ```bash
-ssh -i privatekey root@10.13.104.221
+ssh -i privatekey root@10.13.104.81
 cd /opt/app
 docker compose down -v
-docker rm -f prometheus grafana alertmanager
+cd /opt/monitoring
+docker compose down -v
 systemctl stop node_exporter
+systemctl disable node_exporter
 ```
 
 ---
@@ -1184,17 +1139,15 @@ systemctl stop node_exporter
 
 **After Deployment:**
 
-- [ ] All 58 tasks completed successfully (0 failed)
-- [ ] All containers running: `docker ps` shows 6 containers
-- [ ] Frontend accessible at port 3000
-- [ ] Backend API responding at port 3001
+- [ ] All tasks completed successfully (0 failed)
+- [ ] All containers running: `docker ps` shows 3+ containers (app, mariadb, prometheus, grafana)
+- [ ] Next.js app accessible at port 3100
 - [ ] Prometheus scraping all targets (check /targets)
 - [ ] Grafana dashboard loads with data
 - [ ] Node Exporter exporting metrics
-- [ ] Alerts configured in Prometheus
-- [ ] Can add/update/delete students in frontend
-- [ ] Test error alert works
-- [ ] Test latency alert works
+- [ ] Can add/update/delete students in app
+- [ ] App metrics endpoint accessible at `/api/metrics`
+- [ ] Database migrations completed successfully
 
 ---
 
@@ -1203,14 +1156,12 @@ systemctl stop node_exporter
 **Your deployment is successful when:**
 
 ✅ Playbook completes with **0 failed tasks**
-✅ All **6 containers** are running
+✅ All **containers** are running (app, mariadb, prometheus, grafana)
 ✅ All **Prometheus targets** show "UP" status
-✅ **Grafana dashboard** displays Four Golden Signals
-✅ **Frontend** loads and CRUD operations work
-✅ **Backend API** returns JSON responses
-✅ **Metrics endpoint** returns Prometheus format
-✅ **Alerts** can be triggered via test buttons
-✅ **SLO tracking** panel shows availability percentage
+✅ **Grafana dashboard** displays metrics
+✅ **Next.js app** loads and CRUD operations work
+✅ **Metrics endpoint** returns Prometheus format at `/api/metrics`
+✅ **Database migrations** completed successfully
 ✅ **No errors** in container logs
 
 ---
@@ -1219,12 +1170,13 @@ systemctl stop node_exporter
 
 ### What Makes This Special
 
-🌟 **Production-Ready**: Real Express.js applications with proper error handling
-🌟 **Complete Metrics**: Three-tier metrics (HTTP, Database, Frontend)
-🌟 **SRE Best Practices**: Four Golden Signals, SLO tracking, comprehensive alerting
-🌟 **Beautiful UI**: Modern responsive design with real-time monitoring
-🌟 **Enterprise-Grade**: Auto-provisioned dashboards, alert inhibition, multi-channel notifications
+🌟 **Production-Ready**: Real Next.js SSR application with proper error handling
+🌟 **Complete Metrics**: Application and system-level metrics
+🌟 **SRE Best Practices**: Four Golden Signals monitoring, comprehensive observability
+🌟 **Beautiful UI**: Modern Next.js UI with server-side rendering
+🌟 **Repository-Based**: Uses GitHub repositories for easy updates and versioning
 🌟 **Fully Automated**: Zero manual intervention after playbook execution
+🌟 **Database Migrations**: Automatic Drizzle migrations on startup
 
 ### Intended Workflow
 
@@ -1243,6 +1195,7 @@ systemctl stop node_exporter
 ⚠️ **Storage**: Uses Docker volumes instead of Dell EMC SAN (due to compatibility issues)
 ⚠️ **Container Restart**: Docker restart policies may not trigger as expected; use orchestration (Kubernetes/Swarm) for production
 ⚠️ **Single VM**: No horizontal scaling; consider load balancing for production
+⚠️ **No Alertmanager**: Current setup focuses on metrics collection; add Alertmanager for production alerting
 
 ---
 
