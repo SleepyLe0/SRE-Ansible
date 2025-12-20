@@ -114,6 +114,30 @@
         timeout: 300
         sleep: 5
 
+    - name: Display SSH key path for debugging
+      ansible.builtin.debug:
+        msg: "SSH private key path: {{ ssh_key_path }}"
+
+    - name: Verify SSH key exists
+      ansible.builtin.stat:
+        path: "{{ ssh_key_path }}"
+      register: key_check
+
+    - name: Display key status
+      ansible.builtin.debug:
+        msg: "SSH key exists: {{ key_check.stat.exists }}"
+
+    - name: Test SSH connection manually
+      ansible.builtin.command:
+        cmd: "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -i {{ ssh_key_path }} root@{{ vm_target_ip }} echo 'SSH test successful'"
+      register: ssh_test
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Display SSH test result
+      ansible.builtin.debug:
+        msg: "{{ ssh_test.stdout if ssh_test.rc == 0 else 'SSH test failed: ' + ssh_test.stderr }}"
+
     - name: Add new VM to inventory
       ansible.builtin.add_host:
         name: "{{ vm_target_ip }}"
@@ -122,11 +146,14 @@
         ansible_user: root
         ansible_ssh_private_key_file: "{{ ssh_key_path }}"
         ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o ControlMaster=no'
+        ansible_password: null
 
 - name: Configure the new VM hostname
   hosts: new_vm
   gather_facts: yes
   become: yes
+  vars:
+    ansible_ssh_pipelining: no
   roles:
     - common
     - app
