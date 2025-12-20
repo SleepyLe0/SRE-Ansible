@@ -6,6 +6,10 @@
   apt:
     update_cache: yes
     cache_valid_time: 3600
+  retries: 5
+  delay: 10
+  register: apt_cache_result
+  until: apt_cache_result is succeeded
 
 - name: Install common packages
   apt:
@@ -17,6 +21,10 @@
       - htop
       - net-tools
     state: present
+  retries: 5
+  delay: 10
+  register: apt_install_result
+  until: apt_install_result is succeeded
 
 - name: Ensure Chrony service is running
   ansible.builtin.systemd_service:

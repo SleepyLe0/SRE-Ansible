@@ -203,6 +203,27 @@
       register: apt_update_result
       until: apt_update_result is succeeded
 
+    - name: Disable unattended-upgrades temporarily
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Kill any remaining apt processes
+      ansible.builtin.shell: |
+        systemctl stop apt-daily.timer apt-daily-upgrade.timer
+        systemctl disable apt-daily.timer apt-daily-upgrade.timer
+        killall -9 apt-get apt dpkg 2>/dev/null || true
+        rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+        dpkg --configure -a || true
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Final wait for apt
+      ansible.builtin.pause:
+        seconds: 5
+
   roles:
     - common
     - app
