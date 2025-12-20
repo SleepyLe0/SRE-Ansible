@@ -77,8 +77,6 @@
         clone: "{{ vm_template }}"
         name: "{{ vm_name }}"
         node: "{{ proxmox_node }}"
-        storage: local-lvm
-        format: qcow2
         timeout: 100
         full: false
       register: new_vm
