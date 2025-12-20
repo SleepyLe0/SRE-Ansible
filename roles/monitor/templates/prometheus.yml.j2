@@ -32,20 +32,11 @@ scrape_configs:
           service: 'node_exporter'
           instance: 'int531-vm'
 
-  # Backend Application
-  - job_name: 'backend'
+  # Next.js Application
+  - job_name: 'nextjs-app'
     metrics_path: '/api/metrics'
     static_configs:
-      - targets: ['{{ ansible_default_ipv4.address }}:3001']
+      - targets: ['{{ ansible_default_ipv4.address }}:3100']
         labels:
-          service: 'backend'
+          service: 'nextjs-app'
           tier: 'application'
-
-  # Frontend Application (health check only)
-  - job_name: 'frontend'
-    metrics_path: '/health'
-    static_configs:
-      - targets: ['{{ ansible_default_ipv4.address }}:3000']
-        labels:
-          service: 'frontend'
-          tier: 'presentation'

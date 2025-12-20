@@ -206,7 +206,7 @@
       --network host \
       -e GF_SECURITY_ADMIN_PASSWORD=admin \
       -e GF_USERS_ALLOW_SIGN_UP=false \
-      -e GF_SERVER_HTTP_PORT=3001 \
+      -e GF_SERVER_HTTP_PORT=3000 \
       -v /opt/monitoring/grafana/data:/var/lib/grafana \
       -v /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning \
       -u 472:472 \
@@ -235,7 +235,7 @@
 - name: Wait for Grafana to be ready
   ansible.builtin.wait_for:
     host: localhost
-    port: 3001
+    port: 3000
     delay: 5
     timeout: 60
 
@@ -251,5 +251,5 @@
     msg:
       - "Prometheus: http://{{ ansible_default_ipv4.address }}:9090"
       - "Alertmanager: http://{{ ansible_default_ipv4.address }}:9093"
-      - "Grafana: http://{{ ansible_default_ipv4.address }}:3001 (admin/admin)"
+      - "Grafana: http://{{ ansible_default_ipv4.address }}:3000 (admin/admin)"
       - "Node Exporter: http://{{ ansible_default_ipv4.address }}:9100/metrics"

@@ -45,38 +45,6 @@
     group: sysadmin
     mode: '0755'
 
-- name: Create frontend directory
-  ansible.builtin.file:
-    path: /opt/app/frontend
-    state: directory
-    owner: sysadmin
-    group: sysadmin
-    mode: '0755'
-
-- name: Create backend directory
-  ansible.builtin.file:
-    path: /opt/app/backend
-    state: directory
-    owner: sysadmin
-    group: sysadmin
-    mode: '0755'
-
-- name: Copy frontend application files
-  ansible.builtin.copy:
-    src: frontend/
-    dest: /opt/app/frontend/
-    owner: sysadmin
-    group: sysadmin
-    mode: '0644'
-
-- name: Copy backend application files
-  ansible.builtin.copy:
-    src: backend/
-    dest: /opt/app/backend/
-    owner: sysadmin
-    group: sysadmin
-    mode: '0644'
-
 - name: Copy docker-compose.yml
   ansible.builtin.template:
     src: docker-compose.yml.j2
@@ -92,23 +60,15 @@
   register: docker_compose_result
   changed_when: "'Creating' in docker_compose_result.stdout or 'Starting' in docker_compose_result.stdout"
 
-- name: Wait for backend to be ready
+- name: Wait for Next.js app to be ready
   ansible.builtin.wait_for:
     host: localhost
-    port: 3001
-    delay: 5
-    timeout: 60
-
-- name: Wait for frontend to be ready
-  ansible.builtin.wait_for:
-    host: localhost
-    port: 3000
+    port: 3100
     delay: 5
     timeout: 60
 
 - name: Display application URLs
   ansible.builtin.debug:
     msg:
-      - "Frontend: http://{{ ansible_default_ipv4.address }}:3000"
-      - "Backend API: http://{{ ansible_default_ipv4.address }}:3001"
+      - "Next.js App: http://{{ ansible_default_ipv4.address }}:3100"
       - "Database: {{ ansible_default_ipv4.address }}:3306"

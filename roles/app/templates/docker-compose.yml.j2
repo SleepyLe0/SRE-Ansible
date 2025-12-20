@@ -1,68 +1,53 @@
-version: '3.8'
+networks:
+  sre-network:
+    driver: bridge
 
 services:
-  # Frontend - Node.js/React Application
-  frontend:
-    image: node:18-alpine
-    container_name: frontend-app
-    working_dir: /app
-    volumes:
-      - /opt/app/frontend:/app
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - BACKEND_URL=http://backend:3000
-    command: sh -c "npm install && npm start"
+  mariadb:
+    image: mariadb:latest
+    container_name: x-mariadb
     restart: unless-stopped
-    depends_on:
-      - backend
     networks:
-      - app-network
-
-  # Backend - Node.js API Server
-  backend:
-    image: node:18-alpine
-    container_name: backend-app
-    working_dir: /app
-    volumes:
-      - /opt/app/backend:/app
+      - sre-network
     ports:
-      - "3001:3000"
-    environment:
-      - NODE_ENV=production
-      - DB_HOST=database
-      - DB_PORT=3306
-      - DB_USER=appuser
-      - DB_PASSWORD=apppassword
-      - DB_NAME=students_db
-    command: sh -c "npm install && npm start"
-    restart: unless-stopped
-    depends_on:
-      - database
-    networks:
-      - app-network
-
-  # Database - MariaDB
-  database:
-    image: mariadb:10.11
-    container_name: mariadb-db
+      - "3306:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
       - MYSQL_DATABASE=students_db
       - MYSQL_USER=appuser
       - MYSQL_PASSWORD=apppassword
-    ports:
-      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'mariadb-admin ping -h 127.0.0.1 -p"$$MYSQL_ROOT_PASSWORD"'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     volumes:
       - db-data:/var/lib/mysql
-    restart: unless-stopped
-    networks:
-      - app-network
 
-networks:
-  app-network:
-    driver: bridge
+  app:
+    image: node:18-alpine
+    container_name: x-nextjs-app
+    restart: unless-stopped
+    working_dir: /app
+    networks:
+      - sre-network
+    depends_on:
+      - mariadb
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - DATABASE_URL=mysql://appuser:apppassword@mariadb:3306/students_db
+    ports:
+      - "3100:3100"
+    volumes:
+      - /opt/app:/app
+    command: sh -c "npm install && npm start"
 
 volumes:
   db-data:
