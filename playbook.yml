@@ -154,6 +154,26 @@
   become: yes
   vars:
     ansible_ssh_pipelining: no
+  tasks:
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      register: cloud_init_status
+      failed_when: cloud_init_status.rc not in [0, 2]
+
+    - name: Wait for apt lock to be released
+      ansible.builtin.shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 ; do
+          echo "Waiting for apt lock..."
+          sleep 5
+        done
+      changed_when: false
+      timeout: 300
+
+    - name: Display cloud-init status
+      ansible.builtin.debug:
+        msg: "Cloud-init completed successfully"
+
   roles:
     - common
     - app
