@@ -161,18 +161,47 @@
       register: cloud_init_status
       failed_when: cloud_init_status.rc not in [0, 2]
 
-    - name: Wait for apt lock to be released
+    - name: Wait for automatic system updates to complete
       ansible.builtin.shell: |
-        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 ; do
-          echo "Waiting for apt lock..."
-          sleep 5
+        # Wait for apt locks to be released
+        timeout=600
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+          if ! pgrep -x apt-get > /dev/null && ! pgrep -x dpkg > /dev/null && ! pgrep -x apt > /dev/null; then
+            # Check if we can actually acquire the lock
+            if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+              echo "All apt locks released"
+              exit 0
+            fi
+          fi
+          echo "Waiting for apt/dpkg processes to finish... (${elapsed}s elapsed)"
+          sleep 10
+          elapsed=$((elapsed + 10))
         done
+        echo "Timeout waiting for apt locks"
+        exit 1
       changed_when: false
-      timeout: 300
+      register: apt_wait
+      timeout: 660
 
-    - name: Display cloud-init status
-      ansible.builtin.debug:
-        msg: "Cloud-init completed successfully"
+    - name: Kill any stuck apt processes if needed
+      ansible.builtin.shell: |
+        # Only if wait failed, try to clean up
+        killall -9 apt-get apt dpkg 2>/dev/null || true
+        rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+        dpkg --configure -a
+      when: apt_wait.rc != 0
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Run apt update after waiting
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 0
+      retries: 3
+      delay: 10
+      register: apt_update_result
+      until: apt_update_result is succeeded
 
   roles:
     - common
