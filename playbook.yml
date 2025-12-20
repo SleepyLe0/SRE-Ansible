@@ -88,7 +88,7 @@
         api_password: "{{ proxmox_api_password }}"
         api_host: "{{ proxmox_api_host }}"
         node: "{{ proxmox_node }}"
-        name: "{{ vm_name }}"
+        vmid: "{{ new_vm.vmid }}"
         ciuser: root
         cipassword: int53102
         sshkeys: "{{ vm_ssh_pubkey }}"
