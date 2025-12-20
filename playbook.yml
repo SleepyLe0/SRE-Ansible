@@ -114,15 +114,19 @@
         timeout: 300
         sleep: 5
 
+    - name: Add new VM to inventory
+      ansible.builtin.add_host:
+        name: "{{ vm_target_ip }}"
+        groups: new_vm
+        ansible_host: "{{ vm_target_ip }}"
+        ansible_user: root
+        ansible_ssh_private_key_file: "{{ ssh_key_path }}"
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o ControlMaster=no'
+
 - name: Configure the new VM hostname
-  hosts: 10.13.104.81
+  hosts: new_vm
   gather_facts: yes
   become: yes
-  vars:
-    ansible_host: 10.13.104.81
-    ansible_user: root
-    ansible_ssh_private_key_file: "{{ playbook_dir }}/privatekey"
-    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o ControlMaster=no'
   roles:
     - common
     - app
