@@ -2,13 +2,13 @@
   hosts: localhost
   vars:
     vm_name: godegapoke
-    vm_template: ubuntu-cloud-template-v1
-    proxmox_node: int531-02
-    proxmox_api_host: 10.13.104.212
+    vm_template: template
+    proxmox_node: int531-05
+    proxmox_api_host: 10.13.104.215
     proxmox_api_user: root@pam
-    proxmox_api_password: int53102
+    proxmox_api_password: int53105
     proxmox_storage: local-lvm
-    vm_target_ip: 10.13.104.221
+    vm_target_ip: 10.13.104.81
     ssh_key_path: "{{ playbook_dir }}/privatekey"
   tasks:
     - name: Check if SSH key pair exists
@@ -124,11 +124,11 @@
       failed_when: cloud_init_result.rc not in [0, 2]
 
 - name: Configure the new VM hostname
-  hosts: 10.13.104.221
+  hosts: 10.13.104.81
   gather_facts: yes
   become: yes
   vars:
-    ansible_host: 10.13.104.221
+    ansible_host: 10.13.104.81
     ansible_user: root
     ansible_ssh_private_key_file: "{{ playbook_dir }}/privatekey"
     ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o ControlMaster=no'
